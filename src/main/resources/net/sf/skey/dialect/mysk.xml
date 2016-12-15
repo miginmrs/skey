@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<d:document xmlns:xsi  = "http://www.w3.org/2001/XMLSchema-instance"
+            xmlns:d    = "http://xsltiny.sf.net/document"
+            xmlns:xslm    = "alias://xsl/pure"
+			xmlns:xslt    = "alias://xsl/content"
+			xsi:schemaLocation="alias://xsl/pure  ../xsltiny/schema/xslpure.xsd
+            alias://xsl/content  ../xsltiny/schema/xslcontent.xsl
+            http://xsltiny.sf.net/document ../xsltiny/schema/document.xsd">
+<d:properties>
+    <d:property name="dialect" value="mysql"/>
+	<d:property name="user"/>
+	<d:property name="dbalias" value="db"/>
+	<d:property name="init" value="DROP DATABASE IF EXISTS `db`;&#10;CREATE DATABASE `db`;&#10;USE `db`;&#10;"/>
+</d:properties>
+<d:define>
+	<d:template name="ancestor"><xslt:for-each-group select="/table/columns/column[@present]" group-by="@definer"><xslt:content/></xslt:for-each-group></d:template>
+	<d:fragment name="position"><xslm:value-of select="position()"/></d:fragment>
+	<d:fragment name="value"><xslm:value-of select="current-grouping-key()"/></d:fragment>
+    <d:fragment name="user"><xslm:value-of select="$doc_properties/d:property[@name='user']/@value"/></d:fragment>
+	<d:template name="select"><xslt:for-each-group select="current-group()" group-by="@name"><xslt:content/></xslt:for-each-group></d:template>
+	<d:mapper name="update"><xslm:if test=".!=''">, UPDATE(`<xslm:value-of select="."/>`)</xslm:if></d:mapper>
+	<d:mapper name="use"><xslm:if test="true()">
+		<xslm:variable name="name" select="."/><xslm:value-of select="$doc_properties/d:property[@name=$name]/@value"/>
+	</xslm:if></d:mapper>
+</d:define>
+<d:section name="checkperms" abstract="yes">
+	<d:var name="check">
+		<d:for name="column">
+			<d:if name="new">
+				<d:link name="reference">
+		BEGIN
+			DECLARE usr INT DEFAULT getuser();
+			IF usr IS NOT NULL AND link_perm(usr,'
+					<d:for name="table">
+						<d:use name="name"/>
+					</d:for>','<d:use name="table"/>',@<d:use name="name"/>)=0 THEN
+			BEGIN
+				DECLARE msg text DEFAULT concat('User has not permission to link from <d:for name="table"><d:use name="name"/>
+					</d:for> to ',<d:lay name="if"/><d:use name="name"/><d:lay name="test"/><d:use name="name"/><d:lay name="endif"/>,'@
+					<d:use name="table"/>');
+				SIGNAL SQLSTATE '45003' SET MESSAGE_TEXT = msg;
+			END;
+			END IF;
+		END;
+				</d:link>
+			</d:if>
+		</d:for>
+	</d:var>
+</d:section>
+<d:section name="checkinsertperms">
+	<d:var name="if">if(@</d:var>
+	<d:var name="test"> is null, 'null', @</d:var>
+	<d:var name="endif">)</d:var>
+	<d:import name="checkperms"/>
+	<d:lay name="check"/>
+</d:section>
+<d:section name="checkupdateperms">
+	<d:var name="if">if(NEW.`</d:var>
+	<d:var name="test">` is null, 'null', NEW.`</d:var>
+	<d:var name="endif">`)</d:var>
+	<d:import name="checkperms"/>
+	<d:lay name="check"/>
+</d:section>
+<d:section name="updateview">
+	<d:var name="join"><d:join delimiter=","><d:with name="ancestor">
+		<d:item>`<d:put name="value"/>` t<d:put name="position"/></d:item>
+	</d:with></d:join></d:var>
+	<d:ivar name="selects"><d:with name="ancestor">
+		<d:var name="definer"><d:put name="value"/></d:var>
+		<d:var name="position"><d:put name="position"/></d:var>
+		<d:with name="select">
+			<d:item>t<d:lay name="position"/>.`<d:put name="value"/>` `<d:put name="value"/>`</d:item>
+		</d:with>
+	</d:with></d:ivar>
+DROP VIEW IF EXISTS `up_<d:use name="name"/>`;
+CREATE VIEW `up_<d:use name="name"/>` AS SELECT <d:join delimiter=",">
+	<d:item>t1.id id</d:item>
+	<d:link name="parent"><d:item>t1.`subtype` `subtype`</d:item></d:link>
+	<d:ilay name="selects"/>
+</d:join> FROM <d:lay name="join"/>;
+</d:section>
+<d:section name="selectview">
+DROP VIEW IF EXISTS `g_<d:use name="name"/>`;
+CREATE VIEW `g_<d:use name="name"/>` AS <![CDATA[
+	SELECT
+		IF( u.id = t.`user.u_owner`,
+			t.global_permissions & 0x00F,
+			IF( mg.`id` is not null,
+				t.global_permissions & 0x0F0,
+				t.global_permissions & 0xF00
+			)
+		) perm, u.id uid
+	FROM `table` t
+	JOIN v_getuser u
+	LEFT JOIN mygroups mg ON mg.`uid`=u.id AND mg.`gid`=t.`group.g_owner`
+]]>	WHERE `name`='<d:use name="name"/>';
+DROP VIEW IF EXISTS `v_<d:use name="name"/>`;
+CREATE VIEW `v_<d:use name="name"/>` AS <![CDATA[
+	SELECT t.*,
+		( g.perm<<12 | t.`perms` & ( (g.`uid` = t.`user.u_owner`)*0x00F | (mg.`id` is not null)*0x0F0 | 0xF00) ) $perms
+	FROM ]]> `<d:use name="name"/>` t
+	JOIN `g_<d:use name="name"/>` g <![CDATA[
+	LEFT JOIN mygroups mg ON mg.`uid`=g.`uid` AND mg.`gid` = t.`group.g_owner`
+	HAVING $perms & 0x111111;
+]]></d:section>
+<d:section name="grants">
+    <d:var name="updates">
+        <d:join delimiter="`,`">
+			<d:for name="column">
+				<d:link name="new">
+					<d:link name="present">
+						<d:item><d:use name="name"/></d:item>
+					</d:link>
+				</d:link>
+			</d:for>
+		</d:join>
+    </d:var>
+GRANT SELECT ON TABLE `v_<d:use name="name"/>` TO <d:put name="user"/>;
+GRANT SELECT(id), UPDATE ON TABLE `up_<d:use name="name"/>` TO <d:put name="user"/>;<d:link name="concrete">
+GRANT INSERT ON TABLE `i_<d:use name="name"/>` TO <d:put name="user"/>;</d:link>
+GRANT SELECT(id), DELETE<d:map name="update"><d:lay name="updates"/></d:map> ON TABLE `<d:use name="name"/>` TO <d:put name="user"/>;<d:link name="root">
+GRANT INSERT ON TABLE `<d:use name="name"/>` TO <d:put name="user"/>;</d:link>
+</d:section>
+</d:document>

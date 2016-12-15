@@ -1,0 +1,16 @@
+sql '''
+drop database mysktest;
+create database mysktest;
+use mysktest;
+'''
+@interface output {}
+@output
+class A {
+	int a_inherited;
+	int a_local*;
+	into (a_inherited, a_local) insert (1,2), (3,4);
+}
+class B from A{
+	int b;
+	into (a_inherited, a_local, b) insert (5,6,7);
+}

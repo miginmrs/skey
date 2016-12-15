@@ -1,0 +1,1 @@
+		update `session` s set s.`state`='updated' where s.`user` = OLD.`user.user_id`;

@@ -1,0 +1,151 @@
+#define cprquote(...) #__VA_ARGS__ 
+#define cprcall(f,...) f(__VA_ARGS__)
+#define Q(x) cprcall(cprquote, x)
+
+#define UserState enum(UserStateList)
+#define ObjectPermissions set(ObjectPermissionsList)
+#define InsertPermissions set(InsertPermissionsList)
+#define LinkPermissions set(LinkPermissionsList)
+
+#define UserStateList 'active','inactive','deleted','updated','changed'
+#define ObjectPermissionsList 'ur','ue','ud','ul','gr','ge','gd','gl','or','oe','od','ol'
+#define InsertPermissionsList 'ui','gi','oi'
+#define LinkPermissionsList 'uk','gk','ok'
+#define DELETEDELAY 10000
+
+@interface output {}
+@interface tableperms {
+	ObjectPermissions default_permissions key;
+	InsertPermissions insert_permission key;
+	ObjectPermissions global_permissions key;
+}
+
+@interface perms from tableperms {
+	group g_owner key;
+}
+
+class session {
+	int user unique;
+	char(26) session key;
+	UserState state = 'active';
+	timestamp  timestamp = now();
+}
+
+class ip {
+	varchar(39) ip key;
+	timestamp timestamp key = now();
+}
+
+sql '''
+#include "functions.sql"
+'''
+
+@output()
+@perms(default_permissions='ur,ue,ud,ul,gr', insert_permission='ui,gi', global_permissions='ur,ul', g_owner=$group)
+abstract class object {
+	user u_owner key;
+	group g_owner key;
+	ObjectPermissions perms;
+	on before insert '''
+#include "beforeobjectinsert.sql"
+	'''
+	on before update '''
+#include "beforeobjectupdate.sql"
+	'''
+	on before delete '''
+#include "beforeobjectdelete.sql"
+	'''
+}
+sql '''
+#include "permsfct.sql"
+'''
+@perms(insert_permission='')
+class table from object uses perms {
+	varchar(64) name unique;
+	into (u_owner, perms, name) insert
+	($user, 'ur,ue,gr,or', @perms);
+}
+
+abstract class user from object {
+	group group_id key;
+	ref login login_id unique = null;
+	on before insert '''
+#include "beforeuserinsert.sql"
+	'''
+}
+
+class admin from user {
+	into (u_owner, g_owner, perms, group_id) insert
+	$user = ($user, $group, 'ur,ue,ud,ul,gr,or', $group);
+}
+
+ref class login from object {
+	varchar(100) login unique;
+	varchar(120) pass;
+	boolean active key = true;
+	into (u_owner, g_owner, login, pass, $ref, $rid) insert
+	$login = ($user, $group, 'root', 'root', 'user.login_id', $user);
+	on after update '''
+#include "afterloginupdate.sql"
+	'''
+	on before delete '''
+#include "beforelogindelete.sql"
+	'''
+}
+
+class group from object {
+	varchar(50) name unique;
+	group parent key;
+	into (u_owner, g_owner, perms, name, parent) insert
+	$group = ($user, $group, null, 'root', $group),
+	$gr_admin = ($user, $group, null, 'admin', $gr_admin),
+	$gr_client = ($user, $group, null, 'client', $gr_admin),
+	$gr_vendor = ($user, $group, null, 'vendor', $gr_admin),
+	$gr_accountant = ($user, $group, null, 'accountant', $gr_admin),
+	$gr_staff = ($user, $group, null, 'staff', $gr_admin),
+	$gr_producer = ($user, $group, null, 'producer', $gr_admin);
+	on after update '''
+#include "aftergroupupdate.sql"
+	'''
+}
+
+sql '''
+drop table mygroups;
+'''
+
+class mygroups {
+	int uid unique unique;
+	int gid unique unique;
+}
+
+class groupmember from object {
+	user user_id unique unique;
+	group group_id unique unique;
+	into (u_owner, g_owner, perms, group_id, user_id) insert ($user, $group, null, $group, $user);
+	on after update '''
+#include "aftergmupdate.sql"
+	'''
+	on after delete '''
+#include "aftergmdelete.sql"
+	'''
+}
+
+sql '''
+drop table link;
+'''
+class link from object {
+	object linked unique unique;
+	table linker unique unique;
+	varchar(64) column unique unique;
+	set('ul', 'gl', 'ol') link_permissions;
+}
+
+sql '''
+drop table default_link;
+'''
+class default_link from object {
+	table linked unique unique;
+	table linker unique unique;
+	varchar(64) column unique unique;
+	set('ul', 'gl', 'ol') link_permissions;
+}
