@@ -6,7 +6,7 @@
   <packaging>jar</packaging>
   <version>1.0</version>
   <name>skey</name>
-  <description>An intermediate object oriented language to object based SQL database compiler</description>
+  <description>An SQL Framework for multi-user databases with permissions management</description>
   <url>http://skey.sf.net</url>
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>

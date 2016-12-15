@@ -29,7 +29,7 @@ public class SkeyTest {
         main(args.toArray(new String[0]));
         String str = new Scanner(new FileInputStream("base.sql"), "UTF-8").useDelimiter("\\Z").next();
         byte[] bytes = str.getBytes();
-        Process process = Runtime.getRuntime().exec("mysql -uroot -proot");
+        Process process = Runtime.getRuntime().exec(cmd);
         try{
             process.getOutputStream().write(bytes);
             process.getOutputStream().close();
